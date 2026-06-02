@@ -107,6 +107,26 @@ try {
 }
 ```
 
+#### 本次变更说明
+
+本次调整集中在 iOS 原生 `start` 方法的异步完成流程，调用方式保持不变：
+
+- 成功、失败、超时统一通过内部完成回调处理，避免同一次 `Ping.start` 同时触发 `resolve` 和 `reject`。
+- 任一分支完成后都会停止当前 `GBPing` 实例并释放引用，减少超时后仍继续 ping 或保留回调状态的风险。
+- `timeout` 超时分支现在也会走统一失败流程，错误码仍为 `PingUtil_Message_Timeout`。
+- `payloadSize` 仍仅在 iOS 生效，默认值为 `56` 字节。
+
+调用建议：
+
+```javascript
+const ms = await Ping.start('114.114.114.114', {
+  timeout: 1000,
+  payloadSize: 56 // iOS only
+});
+```
+
+`timeout` 的业务含义为毫秒。为兼容当前 Android 原生实现，建议始终传入第二个参数对象，即使只使用默认值也传 `{}`。
+
 #### About Error
 
 | Code | Message                                    | platform    |

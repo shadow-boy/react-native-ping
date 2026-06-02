@@ -27,6 +27,28 @@ RCT_EXPORT_METHOD(
                   rejecter:(RCTPromiseRejectBlock)reject
                   ) {
     __block GBPing * ping = [[GBPing alloc] init];
+    __block BOOL callbackCalled = NO;
+
+    void (^finishResolve)(NSNumber *) = ^(NSNumber *result) {
+        if (callbackCalled) {
+            return;
+        }
+        callbackCalled = YES;
+        [ping stop];
+        ping = nil;
+        resolve(result);
+    };
+
+    void (^finishReject)(NSError *) = ^(NSError *error) {
+        if (callbackCalled) {
+            return;
+        }
+        callbackCalled = YES;
+        [ping stop];
+        ping = nil;
+        reject(@(error.code).stringValue,error.domain,error);
+    };
+
     ping.timeout = 1.0;
     ping.payloadSize = 56;
     ping.pingPeriod = 0.9;
@@ -43,47 +65,29 @@ RCT_EXPORT_METHOD(
         unsigned long long payloadSize = nsPayloadSize.unsignedLongLongValue;
         ping.payloadSize = payloadSize;
     }
-    __block BOOL callbackCalled = NO;
 
     [ping setupWithBlock:^(BOOL success, NSError *_Nullable err) {
         if (!success) {
-            callbackCalled = YES;
-            reject(@(err.code).stringValue,err.domain,err);
+            finishReject(err);
             return;
         }
         [ping startPingingWithBlock:^(GBPingSummary *summary) {
             if (!ping) {
                 return;
             }
-            if (!callbackCalled) {
-                callbackCalled = YES;
-                resolve(@(@(summary.rtt * 1000).intValue));
-            }
-            
-            [ping stop];
-            ping = nil;
+            finishResolve(@(@(summary.rtt * 1000).intValue));
         } fail:^(NSError *_Nonnull error) {
             if (!ping) {
                 return;
             }
-            if (!callbackCalled) {
-                callbackCalled = YES;
-                reject(@(error.code).stringValue,error.domain,error);
-            }
-            [ping stop];
-            ping = nil;
+            finishReject(error);
         }];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_MSEC)), _queue, ^{
             if (!ping) {
                 return;
             }
-            ping = nil;
             DEFINE_NSError(timeoutError,PingUtil_Message_Timeout)
-            
-            if (!callbackCalled) {
-                callbackCalled = YES;
-                reject(@(timeoutError.code).stringValue,timeoutError.domain,timeoutError);
-            }
+            finishReject(timeoutError);
         });
     }];
 }
